@@ -60,7 +60,7 @@ if uploaded_file is not None:
         st.write("📌 **Hashtags générés :**", ", ".join(hashtags))
 
         if file_type == "image":
-            st.image(Image.open(file_path), caption="Image Analysée", use_column_width=True)
+            st.image(Image.open(file_path), caption="Image Analysée", use_container_width=True)
         elif file_type == "video":
             st.video(file_path)
 
