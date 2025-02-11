@@ -6,3 +6,11 @@ opencv-python
 Pillow
 python-dotenv
 matplotlib
+matplotlib-inline
+numpy
+requests
+tqdm
+imageio
+imageio-ffmpeg
+ffmpeg-python
+watchdog
