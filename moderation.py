@@ -11,7 +11,7 @@ load_dotenv()
 
 # Configuration AWS
 AWS_REGION = os.getenv("REGION", "us-east-1")
-BUCKET_NAME = "tp-eval"  # <-- Mettez votre bucket S3 ici
+BUCKET_NAME = "tp-eval1"  # <-- Mettez votre bucket S3 ici
 
 # Initialiser session & clients
 session = boto3.Session(
