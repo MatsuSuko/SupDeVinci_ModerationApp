@@ -9,12 +9,12 @@ load_dotenv()
 
 st.set_page_config(page_title="Content Moderator Pro", page_icon="🛡️", layout="wide")
 
-st.title("🛡️ Content Moderator Pro (OpenCV + Transcription)")
+st.title("🛡️ Content Moderator Pro")
 st.markdown("""
 Cette application :
-1. **Extraire une image** (snapshot) d'une vidéo via **OpenCV** (pas de ffmpeg).
+1. **Extraire une image** (snapshot) d'une vidéo via **OpenCV**.
 2. **Analyse** l'image (ou directement l'image uploadée) via **AWS Rekognition**.
-3. Si la vidéo est "safe", **transcrit** l'audio via **AWS Transcribe** (configurée ici en `fr-FR`).
+3. Si la vidéo est "safe", **transcrit** l'audio via **AWS Transcribe**.
 """)
 
 # Barre latérale : Configuration AWS
