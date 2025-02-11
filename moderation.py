@@ -6,12 +6,18 @@ import requests
 import cv2  # OpenCV pour extraire la frame
 from dotenv import load_dotenv
 
+
+
 # Charger les variables d'environnement
 load_dotenv()
+
+
 
 # Configuration AWS
 AWS_REGION = os.getenv("REGION", "us-east-1")
 BUCKET_NAME = "tp-eval1"  # <-- Remplacez par votre bucket S3
+
+
 
 # Initialiser la session & les clients
 session = boto3.Session(
@@ -23,6 +29,7 @@ session = boto3.Session(
 rekognition = session.client("rekognition")
 s3 = session.client("s3")
 transcribe = session.client("transcribe")
+
 
 
 def check_filetype(file_path):
@@ -39,6 +46,7 @@ def check_filetype(file_path):
         elif mime_type.startswith("video"):
             return "video"
     return None
+
 
 
 def extract_snapshot_with_opencv(video_path, snapshot_path, time_sec=1):
@@ -74,6 +82,7 @@ def extract_snapshot_with_opencv(video_path, snapshot_path, time_sec=1):
     except Exception as e:
         print(f"❌ Erreur lors de l'extraction de la snapshot via OpenCV : {e}")
         return False
+
 
 
 def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
@@ -135,6 +144,7 @@ def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
     except Exception as e:
         print(f"❌ Erreur lors de la récupération du JSON de transcription : {e}")
         return None
+
 
 
 def moderate_and_generate_hashtags(file_path):

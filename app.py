@@ -4,6 +4,8 @@ import streamlit as st
 from PIL import Image
 import moderation
 
+
+
 # Charger variables d'environnement
 load_dotenv()
 
@@ -17,6 +19,8 @@ Cette application :
 3. Si la vidéo est "safe", **transcrit** l'audio via **AWS Transcribe**.
 """)
 
+
+
 # Barre latérale : Configuration AWS
 st.sidebar.header("⚙️ Configuration AWS")
 
@@ -28,11 +32,15 @@ aws_access_key = st.sidebar.text_input("🔑 AWS Access Key", value=default_acce
 aws_secret_key = st.sidebar.text_input("🔐 AWS Secret Key", value=default_secret_key, type="password")
 aws_region = st.sidebar.selectbox("🌍 Région AWS", ["us-east-1", "eu-west-3", "ap-southeast-1"], index=0)
 
+
+
 if st.sidebar.button("🔄 Charger credentials depuis .env"):
     if default_access_key and default_secret_key:
         st.sidebar.success("✅ Credentials chargés depuis .env")
     else:
         st.sidebar.error("⚠️ Aucun credentials trouvé dans .env")
+
+
 
 if aws_access_key and aws_secret_key:
     os.environ["ACCESS_KEY"] = aws_access_key
@@ -45,6 +53,8 @@ uploaded_file = st.file_uploader(
     "📤 Téléchargez une image (.jpg, .png) ou une vidéo (.mp4, .mov, .avi) pour analyse",
     type=["jpg", "png", "jpeg", "mp4", "mov", "avi"]
 )
+
+
 
 if uploaded_file is not None:
     # Enregistrer le fichier temporairement
@@ -76,6 +86,8 @@ if uploaded_file is not None:
             st.error("🚨 Cette vidéo contient du contenu inapproprié.")
         else:
             st.error("🚨 Fichier non pris en charge ou erreur.")
+
+
 
     # Nettoyage du fichier local
     os.remove(file_path)
