@@ -9,14 +9,12 @@ load_dotenv()
 
 st.set_page_config(page_title="Content Moderator Pro", page_icon="🛡️", layout="wide")
 
-st.title("🛡️ Content Moderator Pro")
+st.title("🛡️ Content Moderator Pro (OpenCV + Transcription)")
 st.markdown("""
-Bienvenue dans **Content Moderator Pro** !  
-Cette application utilise **AWS Rekognition** pour analyser **images** et **vidéos**  
-afin de détecter d'éventuels contenus inappropriés. 
-
-**Nouveauté** : si la vidéo est approuvée, on récupère également sa **transcription** via AWS Transcribe
-en configurant la langue en français (**fr-FR**).
+Cette application :
+1. **Extraire une image** (snapshot) d'une vidéo via **OpenCV** (pas de ffmpeg).
+2. **Analyse** l'image (ou directement l'image uploadée) via **AWS Rekognition**.
+3. Si la vidéo est "safe", **transcrit** l'audio via **AWS Transcribe** (configurée ici en `fr-FR`).
 """)
 
 # Barre latérale : Configuration AWS
@@ -43,14 +41,13 @@ if aws_access_key and aws_secret_key:
 else:
     st.sidebar.warning("⚠️ Les credentials AWS sont requis pour utiliser l'application.")
 
-# Upload d'un fichier
 uploaded_file = st.file_uploader(
     "📤 Téléchargez une image (.jpg, .png) ou une vidéo (.mp4, .mov, .avi) pour analyse",
     type=["jpg", "png", "jpeg", "mp4", "mov", "avi"]
 )
 
 if uploaded_file is not None:
-    # Sauvegarde temporaire du fichier
+    # Enregistrer le fichier temporairement
     file_path = f"temp_{uploaded_file.name}"
     with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
@@ -59,17 +56,16 @@ if uploaded_file is not None:
     is_safe, hashtags, file_type, transcription = moderation.moderate_and_generate_hashtags(file_path)
 
     if is_safe:
-        st.success("✅ Le contenu est approprié et peut être affiché.")
+        st.success("✅ Contenu approprié et peut être affiché.")
         st.write("📌 **Hashtags générés :**", ", ".join(hashtags))
 
         if file_type == "image":
-            st.image(Image.open(file_path), caption="Image Analysée", use_container_width=True)
+            st.image(Image.open(file_path), caption="Image Analysée", use_column_width=True)
         elif file_type == "video":
             st.video(file_path)
 
             if transcription:
-                st.write("---")
-                st.subheader("📝 Transcription (FR)")
+                st.subheader("📝 Transcription")
                 st.write(transcription)
             else:
                 st.info("Aucune transcription disponible ou erreur lors de la transcription.")
@@ -81,5 +77,5 @@ if uploaded_file is not None:
         else:
             st.error("🚨 Fichier non pris en charge ou erreur.")
 
-    # Nettoyage local
+    # Nettoyage du fichier local
     os.remove(file_path)

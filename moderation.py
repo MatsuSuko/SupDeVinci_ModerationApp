@@ -1,9 +1,9 @@
 import mimetypes
 import boto3
 import os
-import subprocess
 import time
 import requests
+import cv2  # OpenCV pour extraire la frame
 from dotenv import load_dotenv
 
 # Charger les variables d'environnement
@@ -11,9 +11,9 @@ load_dotenv()
 
 # Configuration AWS
 AWS_REGION = os.getenv("REGION", "us-east-1")
-BUCKET_NAME = "tp-eval1"  # <-- Mettez votre bucket S3 ici
+BUCKET_NAME = "tp-eval1"  # <-- Remplacez par votre bucket S3
 
-# Initialiser session & clients
+# Initialiser la session & les clients
 session = boto3.Session(
     aws_access_key_id=os.getenv("ACCESS_KEY"),
     aws_secret_access_key=os.getenv("SECRET_KEY"),
@@ -41,28 +41,38 @@ def check_filetype(file_path):
     return None
 
 
-def extract_snapshot_with_ffmpeg(video_path, snapshot_path, time_sec=1):
+def extract_snapshot_with_opencv(video_path, snapshot_path, time_sec=1):
     """
     Extrait une image d'une vidéo (snapshot) à time_sec (en secondes)
-    en utilisant ffmpeg via subprocess.
+    en utilisant OpenCV (cv2).
+
+    - Ouvre la vidéo
+    - Se positionne à time_sec * 1000 millisecondes
+    - Lit une frame
+    - Sauvegarde la frame dans snapshot_path
     """
     try:
-        # Commande ffmpeg :
-        #  -ss {time_sec} : aller à la position time_sec
-        #  -frames:v 1 : extraire 1 frame
-        #  -y : overwrite du fichier de sortie
-        command = [
-            "ffmpeg",
-            "-i", video_path,
-            "-ss", str(time_sec),
-            "-frames:v", "1",
-            snapshot_path,
-            "-y"
-        ]
-        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print("❌ Impossible d'ouvrir la vidéo avec OpenCV.")
+            return False
+        
+        # Se positionner à time_sec (en millisecondes)
+        cap.set(cv2.CAP_PROP_POS_MSEC, time_sec * 1000)
+        
+        ret, frame = cap.read()
+        if not ret:
+            print("❌ Impossible de lire la frame à la seconde demandée.")
+            cap.release()
+            return False
+        
+        # Sauvegarder la frame en image
+        cv2.imwrite(snapshot_path, frame)
+        cap.release()
         return True
+
     except Exception as e:
-        print(f"❌ Erreur lors de l'extraction du snapshot via ffmpeg : {e}")
+        print(f"❌ Erreur lors de l'extraction de la snapshot via OpenCV : {e}")
         return False
 
 
@@ -70,22 +80,20 @@ def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
     """
     Lance une transcription AWS Transcribe asynchrone sur une vidéo
     stockée dans un bucket S3, attend la fin du job, et renvoie le texte transcrit.
-    
+
     Paramètres :
     - s3_bucket : nom du bucket
     - s3_key : chemin/nom du fichier dans le bucket
     - language_code : code langue ("fr-FR", "en-US", etc.)
-    
+
     Retourne : une chaîne de caractères (transcription) ou None en cas d'erreur.
     """
-
-    # On crée un nom de job unique (par ex : "transcribe_{timestamp}")
+    # Nom de job unique (ex: transcribe_1681234567)
     job_name = f"transcribe_{int(time.time())}"
 
-    # Récupérer l'extension du fichier pour déterminer le format
+    # Déterminer le format média depuis l'extension
     media_format = s3_key.split(".")[-1].lower()
     if media_format not in ["mp4", "mov", "avi"]:
-        # Forcer un format par défaut si besoin
         media_format = "mp4"
 
     try:
@@ -96,14 +104,13 @@ def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
             Media={
                 "MediaFileUri": f"s3://{s3_bucket}/{s3_key}"
             }
-            # IMPORTANT : on n'utilise pas OutputBucketName=None
-            # Sans OutputBucketName, AWS Transcribe stocke le résultat dans son propre bucket
+            # On ne spécifie pas OutputBucketName => AWS Transcribe stocke la sortie dans son bucket
         )
     except Exception as e:
         print(f"❌ Erreur lors du start_transcription_job : {e}")
         return None
 
-    # Attendre la fin du job
+    # Poller jusqu'à complétion
     while True:
         job_status_resp = transcribe.get_transcription_job(TranscriptionJobName=job_name)
         status = job_status_resp["TranscriptionJob"]["TranscriptionJobStatus"]
@@ -115,14 +122,14 @@ def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
         print("❌ Job de transcription échoué.")
         return None
 
-    # Récupération du TranscriptFileUri
+    # Récupérer le TranscriptFileUri
     transcript_file_uri = job_status_resp["TranscriptionJob"]["Transcript"]["TranscriptFileUri"]
-    # Télécharger le fichier JSON de la transcription
+    # Télécharger le fichier JSON
     try:
         r = requests.get(transcript_file_uri)
         r.raise_for_status()
         transcript_json = r.json()
-        # On suppose qu'il y a au moins un résultat
+        # On suppose qu'il y a au moins un bloc transcrit
         transcript_text = transcript_json["results"]["transcripts"][0]["transcript"]
         return transcript_text
     except Exception as e:
@@ -133,11 +140,11 @@ def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
 def moderate_and_generate_hashtags(file_path):
     """
     Analyse un fichier (image ou vidéo) pour détecter du contenu inapproprié,
-    génère des hashtags, et si c'est une vidéo safe => transcrit l'audio.
-    
+    génère des hashtags, et si c'est une vidéo "safe" => transcription.
+
     Retourne (is_safe, hashtags, file_type, transcription).
       - is_safe (bool)
-      - hashtags (list de strings)
+      - hashtags (list[str])
       - file_type ("image" ou "video" ou None)
       - transcription (str ou None)
     """
@@ -147,9 +154,9 @@ def moderate_and_generate_hashtags(file_path):
         return False, [], None, None
 
     if file_type == "image":
-        # -----------------------------------------
-        # Analyse IMAGE (labels + modération)
-        # -----------------------------------------
+        # ================================
+        # 1) Analyse d'une IMAGE
+        # ================================
         print("🔹 Analyse de l'image avec AWS Rekognition...")
 
         image_key = f"uploaded_images/{os.path.basename(file_path)}"
@@ -157,24 +164,24 @@ def moderate_and_generate_hashtags(file_path):
             s3.upload_file(file_path, BUCKET_NAME, image_key)
             print(f"✅ Image uploadée : s3://{BUCKET_NAME}/{image_key}")
         except Exception as e:
-            print(f"❌ Erreur d'upload : {e}")
+            print(f"❌ Erreur d'upload de l'image : {e}")
             return False, [], file_type, None
 
         # Détection des labels
-        response_labels = rekognition.detect_labels(
+        resp_labels = rekognition.detect_labels(
             Image={"S3Object": {"Bucket": BUCKET_NAME, "Name": image_key}},
             MaxLabels=10,
             MinConfidence=50
         )
-        labels = response_labels.get("Labels", [])
+        labels = resp_labels.get("Labels", [])
         sorted_labels = sorted(labels, key=lambda x: x["Confidence"], reverse=True)
         hashtags = [f"#{label['Name'].replace(' ', '')}" for label in sorted_labels]
 
         # Détection de contenu inapproprié
-        response_moderation = rekognition.detect_moderation_labels(
+        resp_moderation = rekognition.detect_moderation_labels(
             Image={"S3Object": {"Bucket": BUCKET_NAME, "Name": image_key}}
         )
-        moderation_labels = response_moderation.get("ModerationLabels", [])
+        moderation_labels = resp_moderation.get("ModerationLabels", [])
 
         if moderation_labels:
             print("❌ Contenu inapproprié détecté :")
@@ -187,10 +194,10 @@ def moderate_and_generate_hashtags(file_path):
             return True, hashtags, file_type, None
 
     else:
-        # -----------------------------------------
-        # Analyse VIDÉO (1 snapshot + modération)
-        # -----------------------------------------
-        print("🔹 Analyse d'une vidéo via une snapshot extraite avec ffmpeg...")
+        # ================================
+        # 2) Analyse d'une VIDÉO
+        # ================================
+        print("🔹 Analyse d'une vidéo (snapshot OpenCV) + Transcription...")
 
         # 1) Upload de la vidéo sur S3
         video_key = f"uploaded_videos/{os.path.basename(file_path)}"
@@ -201,14 +208,14 @@ def moderate_and_generate_hashtags(file_path):
             print(f"❌ Erreur d'upload de la vidéo : {e}")
             return False, [], file_type, None
 
-        # 2) Extraire une image depuis la vidéo
+        # 2) Extraire une image via OpenCV (à 1 seconde)
         snapshot_path = f"snapshot_{os.path.splitext(os.path.basename(file_path))[0]}.jpg"
-        success_snapshot = extract_snapshot_with_ffmpeg(file_path, snapshot_path, time_sec=1)
+        success_snapshot = extract_snapshot_with_opencv(file_path, snapshot_path, time_sec=1)
         if not success_snapshot:
             print("❌ Échec de l'extraction de la snapshot vidéo.")
             return False, [], file_type, None
 
-        # 3) Upload de la snapshot sur S3
+        # 3) Upload de la snapshot
         snapshot_key = f"uploaded_images/{os.path.basename(snapshot_path)}"
         try:
             s3.upload_file(snapshot_path, BUCKET_NAME, snapshot_key)
@@ -218,27 +225,26 @@ def moderate_and_generate_hashtags(file_path):
             os.remove(snapshot_path)
             return False, [], file_type, None
 
-        # 4) Détection des labels via la snapshot
-        response_labels = rekognition.detect_labels(
+        # 4) Analyse de la snapshot (labels + modération)
+        resp_labels = rekognition.detect_labels(
             Image={"S3Object": {"Bucket": BUCKET_NAME, "Name": snapshot_key}},
             MaxLabels=10,
             MinConfidence=50
         )
-        labels = response_labels.get("Labels", [])
+        labels = resp_labels.get("Labels", [])
         sorted_labels = sorted(labels, key=lambda x: x["Confidence"], reverse=True)
         hashtags = [f"#{label['Name'].replace(' ', '')}" for label in sorted_labels]
 
-        # 5) Détection du contenu inapproprié
-        response_moderation = rekognition.detect_moderation_labels(
+        resp_moderation = rekognition.detect_moderation_labels(
             Image={"S3Object": {"Bucket": BUCKET_NAME, "Name": snapshot_key}}
         )
-        moderation_labels = response_moderation.get("ModerationLabels", [])
+        moderation_labels = resp_moderation.get("ModerationLabels", [])
 
-        # Nettoyage snapshot local
+        # Nettoyer la snapshot locale
         os.remove(snapshot_path)
 
         if moderation_labels:
-            print("❌ Contenu inapproprié détecté dans la snapshot :")
+            print("❌ Contenu inapproprié détecté dans la snapshot.")
             for m in moderation_labels:
                 print(f"- {m['Name']} ({m['Confidence']:.2f}%)")
             print("⛔ VIDÉO REFUSÉE ⛔")
@@ -246,8 +252,8 @@ def moderate_and_generate_hashtags(file_path):
         else:
             print("✅ Aucune modération négative. VIDÉO OK.")
 
-            # 6) TRANSCRIPTION de la vidéo en français (ou toute autre langue) 
-            print("🔹 Lancement de la transcription audio (AWS Transcribe, FR)...")
+            # 5) TRANSCRIPTION
+            print("🔹 Lancement de la transcription (fr-FR)...")
             transcription_text = transcribe_video_s3(BUCKET_NAME, video_key, language_code="fr-FR")
             if transcription_text:
                 print("✅ Transcription réussie.")
