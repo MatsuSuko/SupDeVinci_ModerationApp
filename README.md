@@ -72,6 +72,7 @@ SupDeVinci_ModerationApp/
 ├── app.py         # Application web des TP2 & TP3
 ├── moderation.py         # Application web des TP2 & TP3
 ├── .env                  # Fichier de configuration AWS
+├── requirements.txt                  # Fichier contenant tout ce qu'il faut installer
 └── README.md            # Documentation
 ```
 
