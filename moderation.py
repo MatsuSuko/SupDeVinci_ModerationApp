@@ -3,19 +3,18 @@ import boto3
 import os
 import time
 import requests
-import cv2  # OpenCV pour extraire la frame
+import cv2
 from dotenv import load_dotenv
 
 
 
-# Charger les variables d'environnement
 load_dotenv()
 
 
 
 # Configuration AWS
 AWS_REGION = os.getenv("REGION", "us-east-1")
-BUCKET_NAME = "tp-eval1"  # <-- Remplacez par votre bucket S3
+BUCKET_NAME = "tp-eval1"
 
 
 
@@ -36,8 +35,7 @@ def check_filetype(file_path):
     """
     Détermine si un fichier est une image ou une vidéo.
     Retourne 'image' si c'est une image,
-    'video' si c'est une vidéo,
-    sinon None.
+    'video' si c'est une vidéo
     """
     mime_type, _ = mimetypes.guess_type(file_path)
     if mime_type:
@@ -53,7 +51,6 @@ def extract_snapshot_with_opencv(video_path, snapshot_path, time_sec=1):
     """
     Extrait une image d'une vidéo (snapshot) à time_sec (en secondes)
     en utilisant OpenCV (cv2).
-
     - Ouvre la vidéo
     - Se positionne à time_sec * 1000 millisecondes
     - Lit une frame
@@ -87,20 +84,13 @@ def extract_snapshot_with_opencv(video_path, snapshot_path, time_sec=1):
 
 def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
     """
-    Lance une transcription AWS Transcribe asynchrone sur une vidéo
-    stockée dans un bucket S3, attend la fin du job, et renvoie le texte transcrit.
+    Lance une transcription AWS Transcribe, attend la fin du job, et renvoie le texte transcrit.
 
-    Paramètres :
-    - s3_bucket : nom du bucket
-    - s3_key : chemin/nom du fichier dans le bucket
-    - language_code : code langue ("fr-FR", "en-US", etc.)
-
-    Retourne : une chaîne de caractères (transcription) ou None en cas d'erreur.
+    Retourne : une chaîne de caractères.
     """
-    # Nom de job unique (ex: transcribe_1681234567)
+    # Nom de job
     job_name = f"transcribe_{int(time.time())}"
 
-    # Déterminer le format média depuis l'extension
     media_format = s3_key.split(".")[-1].lower()
     if media_format not in ["mp4", "mov", "avi"]:
         media_format = "mp4"
@@ -113,13 +103,11 @@ def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
             Media={
                 "MediaFileUri": f"s3://{s3_bucket}/{s3_key}"
             }
-            # On ne spécifie pas OutputBucketName => AWS Transcribe stocke la sortie dans son bucket
         )
     except Exception as e:
         print(f"❌ Erreur lors du start_transcription_job : {e}")
         return None
 
-    # Poller jusqu'à complétion
     while True:
         job_status_resp = transcribe.get_transcription_job(TranscriptionJobName=job_name)
         status = job_status_resp["TranscriptionJob"]["TranscriptionJobStatus"]
@@ -138,7 +126,6 @@ def transcribe_video_s3(s3_bucket, s3_key, language_code="fr-FR"):
         r = requests.get(transcript_file_uri)
         r.raise_for_status()
         transcript_json = r.json()
-        # On suppose qu'il y a au moins un bloc transcrit
         transcript_text = transcript_json["results"]["transcripts"][0]["transcript"]
         return transcript_text
     except Exception as e:
@@ -151,12 +138,6 @@ def moderate_and_generate_hashtags(file_path):
     """
     Analyse un fichier (image ou vidéo) pour détecter du contenu inapproprié,
     génère des hashtags, et si c'est une vidéo "safe" => transcription.
-
-    Retourne (is_safe, hashtags, file_type, transcription).
-      - is_safe (bool)
-      - hashtags (list[str])
-      - file_type ("image" ou "video" ou None)
-      - transcription (str ou None)
     """
     file_type = check_filetype(file_path)
     if file_type not in ["image", "video"]:
@@ -207,9 +188,9 @@ def moderate_and_generate_hashtags(file_path):
         # ================================
         # 2) Analyse d'une VIDÉO
         # ================================
-        print("🔹 Analyse d'une vidéo (snapshot OpenCV) + Transcription...")
+        print("🔹 Analyse d'une vidéo + Transcription...")
 
-        # 1) Upload de la vidéo sur S3
+        # 1) Upload de la vidéo
         video_key = f"uploaded_videos/{os.path.basename(file_path)}"
         try:
             s3.upload_file(file_path, BUCKET_NAME, video_key)
@@ -218,14 +199,13 @@ def moderate_and_generate_hashtags(file_path):
             print(f"❌ Erreur d'upload de la vidéo : {e}")
             return False, [], file_type, None
 
-        # 2) Extraire une image via OpenCV (à 1 seconde)
+        # 2) Extraire une image
         snapshot_path = f"snapshot_{os.path.splitext(os.path.basename(file_path))[0]}.jpg"
         success_snapshot = extract_snapshot_with_opencv(file_path, snapshot_path, time_sec=1)
         if not success_snapshot:
             print("❌ Échec de l'extraction de la snapshot vidéo.")
             return False, [], file_type, None
 
-        # 3) Upload de la snapshot
         snapshot_key = f"uploaded_images/{os.path.basename(snapshot_path)}"
         try:
             s3.upload_file(snapshot_path, BUCKET_NAME, snapshot_key)
@@ -235,7 +215,7 @@ def moderate_and_generate_hashtags(file_path):
             os.remove(snapshot_path)
             return False, [], file_type, None
 
-        # 4) Analyse de la snapshot (labels + modération)
+        # 3) Analyse de la snapshot
         resp_labels = rekognition.detect_labels(
             Image={"S3Object": {"Bucket": BUCKET_NAME, "Name": snapshot_key}},
             MaxLabels=10,
@@ -250,7 +230,6 @@ def moderate_and_generate_hashtags(file_path):
         )
         moderation_labels = resp_moderation.get("ModerationLabels", [])
 
-        # Nettoyer la snapshot locale
         os.remove(snapshot_path)
 
         if moderation_labels:
@@ -262,7 +241,7 @@ def moderate_and_generate_hashtags(file_path):
         else:
             print("✅ Aucune modération négative. VIDÉO OK.")
 
-            # 5) TRANSCRIPTION
+            # 4) TRANSCRIPTION
             print("🔹 Lancement de la transcription (fr-FR)...")
             transcription_text = transcribe_video_s3(BUCKET_NAME, video_key, language_code="fr-FR")
             if transcription_text:

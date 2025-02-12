@@ -6,17 +6,18 @@ import moderation
 
 
 
-# Charger variables d'environnement
 load_dotenv()
+
+
 
 st.set_page_config(page_title="Content Moderator Pro", page_icon="🛡️", layout="wide")
 
-st.title("🛡️ Content Moderator Pro")
+st.title("🛡️ Content Moderator Pro (OpenCV + Transcription)")
 st.markdown("""
 Cette application :
-1. **Extraire une image** (snapshot) d'une vidéo via **OpenCV**.
+1. **Extraire une image** (snapshot) d'une vidéo via **OpenCV** (pas de ffmpeg).
 2. **Analyse** l'image (ou directement l'image uploadée) via **AWS Rekognition**.
-3. Si la vidéo est "safe", **transcrit** l'audio via **AWS Transcribe**.
+3. Si la vidéo est "safe", **transcrit** l'audio via **AWS Transcribe** (configurée ici en `fr-FR`).
 """)
 
 
@@ -39,8 +40,6 @@ if st.sidebar.button("🔄 Charger credentials depuis .env"):
         st.sidebar.success("✅ Credentials chargés depuis .env")
     else:
         st.sidebar.error("⚠️ Aucun credentials trouvé dans .env")
-
-
 
 if aws_access_key and aws_secret_key:
     os.environ["ACCESS_KEY"] = aws_access_key
@@ -70,7 +69,7 @@ if uploaded_file is not None:
         st.write("📌 **Hashtags générés :**", ", ".join(hashtags))
 
         if file_type == "image":
-            st.image(Image.open(file_path), caption="Image Analysée", use_container_width=True)
+            st.image(Image.open(file_path), caption="Image Analysée", use_column_width=True)
         elif file_type == "video":
             st.video(file_path)
 
@@ -86,8 +85,6 @@ if uploaded_file is not None:
             st.error("🚨 Cette vidéo contient du contenu inapproprié.")
         else:
             st.error("🚨 Fichier non pris en charge ou erreur.")
-
-
 
     # Nettoyage du fichier local
     os.remove(file_path)
